@@ -13,19 +13,22 @@ main :: proc() {
     // Scenario: creature is hungry, sees food, decides to “push” (eat)
     for trial in 0..<30 {
         // Sensory situation
-        biv.set_drive(brain, 2, 0.9)                // Hunger high
-        biv.set_source(brain, 6, 0.8)               // Food present
-        biv.set_general_sense(brain, 12, 0.7)       // near me
+        biv.set_drive(brain, .Hunger, 0.9)           // Hunger high
+        biv.set_source(brain, .Food, 0.8)            // Food present
+        biv.set_general_sense(brain, .ItNearMe, 0.7) // near me
+
+        biv.speak_verb(brain, .Push)
+        biv.speak_noun(brain, .Food)
 
         biv.tick(brain)
 
-        decision := biv.get_decision(brain)
+        decision  := biv.get_decision(brain)
         attention := biv.get_attention(brain)
 
         // Simple external critic:
         // If it chose “Push” (1) while attending to Food (6) → reward
         // Otherwise mild punishment
-        if decision == 1 && attention == 6 {
+        if decision == .Push && attention == .Food {
             biv.set_reward(brain, 0.7)
             biv.set_punish(brain, 0.0)
             fmt.printf("Trial %2d: GOOD  (Push food)  reward\n", trial)

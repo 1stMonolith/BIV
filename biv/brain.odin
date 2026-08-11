@@ -16,6 +16,98 @@ Lobe_ID :: enum u8 {
     Concept,
 }
 
+// Drive lobe (16 cells, 13 used in C1)
+Drive :: enum u8 {
+    Pain              = 0,
+    Need_For_Pleasure = 1,
+    Hunger            = 2,
+    Coldness          = 3,
+    Hotness           = 4,
+    Tiredness         = 5,
+    Sleepiness        = 6,
+    Loneliness        = 7,
+    Crowdedness       = 8,
+    Fear              = 9,
+    Boredom           = 10,
+    Anger             = 11,
+    Sex_Drive         = 12,
+    // 13–15 unused
+}
+
+// Verb / Decision lobe actions (16 cells)
+Verb :: enum u8 {
+    Quiescent = 0, // stay / do nothing
+    Push      = 1, // activate 1  (eat food, etc.)
+    Pull      = 2, // activate 2
+    Stop      = 3, // deactivate
+    Come      = 4, // approach
+    Run       = 5, // retreat
+    Get       = 6,
+    Drop      = 7,
+    Think     = 8, // say need / what
+    Sleep     = 9,
+    Left      = 10,
+    Right     = 11,
+    // 12–15 unused
+}
+
+// Noun / Source / Attention object classes (40 cells)
+Noun :: enum u8 {
+    Self        = 0,
+    Hand        = 1,
+    Call_Button = 2,
+    Water       = 3,
+    Plant       = 4,
+    Egg         = 5,
+    Food        = 6,
+    Drink       = 7,
+    Vendor      = 8,
+    Music       = 9,
+    Animal      = 10,
+    Fire        = 11,
+    Shower      = 12,
+    Toy         = 13,
+    BigToy      = 14,
+    Weed        = 15,
+    Incubator   = 16,
+    // 17–25 unused
+    Vehicle     = 26,
+    Lift        = 27,
+    Computer    = 28,
+    Fun         = 29,
+    Bang        = 30,
+    // 31–35 unused
+    Creature1   = 36,
+    Creature2   = 37,
+    Creature3   = 38,
+    Creature4   = 39,
+}
+
+// General Sense lobe events / features (32 cells)
+GeneralSense :: enum u8 {
+    BeenPatted     = 0,
+    BeenSlapped    = 1,
+    BumpedWall     = 2,
+    NearWall       = 3,
+    InVehicle      = 4,
+    UserSpoken     = 5,
+    CreatureSpoken = 6,
+    OwnKindSpoken  = 7,
+    AudibleEvent   = 8,
+    VisibleEvent   = 9,
+    ItApproaching  = 10,
+    ItRetreating   = 11,
+    ItNearMe       = 12,
+    ItActive       = 13,
+    ItObject       = 14,
+    ItCreature     = 15,
+    ItSibling      = 16,
+    ItParent       = 17,
+    ItChild        = 18,
+    ItOppositeSex  = 19,
+    // 20+ were unused
+}
+
 Neuron_Index :: distinct u16
 
 LOBE_SIZES := [Lobe_ID]int{
@@ -428,42 +520,51 @@ set_punish :: proc(b: ^Brain, value: f32) {
     b.punish = clamp(value, 0, 1)
 }
 
-set_drive :: proc(b: ^Brain, drive: int, value: f32) {
-    if drive < 0 || drive >= LOBE_SIZES[.Drive] do return
+set_drive :: proc(b: ^Brain, drive: Drive, value: f32) {
+    idx := int(drive)
+    if idx < 0 || idx >= LOBE_SIZES[.Drive] do return
     n := &b.lobes[.Drive].neurons[drive]
     n.state = clamp(value, 0, 1)
     n.output = neuron_output(n^)
 }
 
-speak_verb :: proc(b: ^Brain, verb: int, strength: f32 = 1.0) {
-    if verb < 0 || verb >= LOBE_SIZES[.Verb] do return
+speak_verb :: proc(b: ^Brain, verb: Verb, strength: f32 = 1.0) {
+    idx := int(verb)
+    if idx < 0 || idx >= LOBE_SIZES[.Verb] do return
     n := &b.lobes[.Verb].neurons[verb]
     n.state = strength
     n.output = neuron_output(n^)
 }
 
-speak_noun :: proc(b: ^Brain, noun: int, strength: f32 = 1.0) {
-    if noun < 0 || noun >= LOBE_SIZES[.Noun] do return
+speak_noun :: proc(b: ^Brain, noun: Noun, strength: f32 = 1.0) {
+    idx := int(noun)
+    if idx < 0 || idx >= LOBE_SIZES[.Noun] do return
     n := &b.lobes[.Noun].neurons[noun]
     n.state = strength
     n.output = neuron_output(n^)
 }
 
-set_general_sense :: proc(b: ^Brain, sense: int, value: f32) {
-    if sense < 0 || sense >= LOBE_SIZES[.General_Sense] do return
+set_general_sense :: proc(b: ^Brain, sense: GeneralSense, value: f32) {
+    idx := int(sense)
+    if idx < 0 || idx >= LOBE_SIZES[.General_Sense] do return
     n := &b.lobes[.General_Sense].neurons[sense]
     n.state = clamp(value, 0, 1)
     n.output = neuron_output(n^)
 }
 
-set_source :: proc(b: ^Brain, object_class: int, value: f32) {
-    if object_class < 0 || object_class >= LOBE_SIZES[.Source] do return
-    n := &b.lobes[.Source].neurons[object_class]
+set_source :: proc(b: ^Brain, object: Noun, value: f32) {
+    idx := int(object)
+    if idx < 0 || idx >= LOBE_SIZES[.Source] do return
+    n := &b.lobes[.Source].neurons[idx]
     n.state = clamp(value, 0, 1)
     n.output = neuron_output(n^)
 }
 
-get_decision :: proc(b: ^Brain) -> int {
+get_decision :: proc(b: ^Brain) -> Verb {
+    return Verb(get_decision_index(b))   // rename the old int version
+}
+
+get_decision_index :: proc(b: ^Brain) -> int {
     lobe := &b.lobes[.Decision]
     best, best_val := 0, lobe.neurons[0].output
     for i in 1..<len(lobe.neurons) {
@@ -475,7 +576,11 @@ get_decision :: proc(b: ^Brain) -> int {
     return best
 }
 
-get_attention :: proc(b: ^Brain) -> int {
+get_attention :: proc(b: ^Brain) -> Noun {
+    return Noun(get_attention_index(b))
+}
+
+get_attention_index :: proc(b: ^Brain) -> int {
     lobe := &b.lobes[.Attention]
     best, best_val := 0, lobe.neurons[0].output
     for i in 1..<len(lobe.neurons) {

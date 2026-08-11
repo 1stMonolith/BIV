@@ -18,24 +18,18 @@ main :: proc() {
 
     biv.visualizer_update_layout(biv.GRID_PAD, biv.GRID_PAD)
 
-    biv.build_dendrite_list(brain, &ui)
-
     for !rl.WindowShouldClose() {
 
         if rl.IsKeyPressed(.SPACE) do biv.tick(brain)
+
+        biv.handle_neuron_hover(brain, &ui)
 
         rl.BeginDrawing()
         rl.ClearBackground({15, 15, 25, 255})
 
         biv.visualizer_draw_ui(brain, &ui)
 
-        to_draw: []biv.Dendrite_Ref
-        if ui.show_all_dendrites {
-            to_draw = ui.dendrites[:]
-        } else if ui.dendrite_active >= 0 && int(ui.dendrite_active) < len(ui.dendrites) {
-            to_draw = ui.dendrites[ui.dendrite_active:ui.dendrite_active+1]
-        }
-
+        to_draw := ui.hovered_neuron_dendrites[:]
         biv.visualizer_draw_brain(brain, to_draw)
 
         // Status line

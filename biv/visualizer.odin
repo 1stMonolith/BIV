@@ -21,17 +21,21 @@ Lobe_Rect :: struct {
     screen : rl.Rectangle,
 }
 
-// Simplified dendrite reference for the list
+Neuron_Ref :: struct {
+    lobe : Lobe_ID,
+    idx  : int,
+}
+
 Dendrite_Ref :: struct {
     src_lobe, dst_lobe : Lobe_ID,
     src_idx,  dst_idx  : Neuron_Index,
     stw                : f32,
     is_excitatory      : bool,
-    label              : string,
+    incoming           : bool, // true = dendrite points to neuron
 }
 
 UI_State :: struct {
-// Sensory selectors
+    // Sensory selectors
     drive_index   : i32,
     source_index  : i32,
     sense_index   : i32,
@@ -42,12 +46,9 @@ UI_State :: struct {
     source_value  : f32,
     sense_value   : f32,
 
-    // Dendrite list
-    dendrites           : [dynamic]Dendrite_Ref,
-    dendrite_labels     : [dynamic]cstring, // for GuiListView
-    dendrite_scroll     : i32,
-    dendrite_active     : i32,              // -1 = none selected
-    show_all_dendrites  : bool,
+    // Neuron
+    hovered_neuron           : Neuron_Ref,
+    hovered_neuron_dendrites : [dynamic]Dendrite_Ref,
 
     // Temporary cstring buffers for the fixed lists
     drive_labels  : [dynamic]cstring,
@@ -73,7 +74,6 @@ visualizer_init :: proc(ui: ^UI_State) {
     ui.drive_index  = 2          // Hunger by default
     ui.source_index = 6          // Food
     ui.sense_index  = 12         // It_Near_Me
-    ui.dendrite_active = -1
     ui.drive_value  = 0.8
     ui.source_value = 0.7
     ui.sense_value  = 0.6
@@ -111,21 +111,18 @@ build_enum_labels :: proc(ui: ^UI_State) {
 }
 
 visualizer_destroy :: proc(ui: ^UI_State) {
-    for l in ui.drive_labels    do delete(l)
-    for l in ui.source_labels   do delete(l)
-    for l in ui.sense_labels    do delete(l)
-    for l in ui.verb_labels     do delete(l)
-    for l in ui.noun_labels     do delete(l)
-    for l in ui.dendrite_labels do delete(l)
-    for d in ui.dendrites       do delete(d.label)
+    for l in ui.drive_labels  do delete(l)
+    for l in ui.source_labels do delete(l)
+    for l in ui.sense_labels  do delete(l)
+    for l in ui.verb_labels   do delete(l)
+    for l in ui.noun_labels   do delete(l)
 
     delete(ui.drive_labels)
     delete(ui.source_labels)
     delete(ui.sense_labels)
     delete(ui.verb_labels)
     delete(ui.noun_labels)
-    delete(ui.dendrite_labels)
-    delete(ui.dendrites)
+    delete(ui.hovered_neuron_dendrites)
 }
 
 // Call once after window is created / on resize
@@ -208,7 +205,7 @@ visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref)
             rl.DrawRectangleRec(r, c)
             rl.DrawRectangleLinesEx(r, 1, {20, 20, 30, 180})
         }
-
+        
         // Lobe border
         rl.DrawRectangleLinesEx(layout.screen, 1, rl.LIGHTGRAY)
     }
@@ -230,64 +227,6 @@ visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref)
         thickness := 1.0 + ref.stw * 3.0
         rl.DrawLineEx({sx, sy}, {dx, dy}, thickness, col)
     }
-}
-
-build_dendrite_list :: proc(brain: ^Brain, ui: ^UI_State) {
-    // Free old data
-    for label in ui.dendrite_labels do delete(label)
-    for d in ui.dendrites do delete(d.label)
-    clear(&ui.dendrite_labels)
-    clear(&ui.dendrites)
-
-    // Walk every lobe that may have dendrites
-    for lobe_id in Lobe_ID {
-        lobe := &brain.lobes[lobe_id]
-
-        // Type-0 dendrites (treated as excitatory)
-        for n in 0..<len(lobe.dendrites_0) {
-            for d in lobe.dendrites_0[n] {
-                label := fmt.tprintf("%v%-3d → %v%-3d  exc  stw=%.2f",
-                    d.source_lobe, int(d.source_idx),
-                    lobe_id, n, d.stw)
-
-                append(&ui.dendrites, Dendrite_Ref{
-                    src_lobe      = d.source_lobe,
-                    src_idx       = d.source_idx,
-                    dst_lobe      = lobe_id,
-                    dst_idx       = Neuron_Index(n),
-                    stw           = d.stw,
-                    is_excitatory = true,
-                    label         = strings.clone(label),
-                })
-                append(&ui.dendrite_labels,
-                    strings.clone_to_cstring(label, context.allocator))
-            }
-        }
-
-        // Type-1 dendrites (treated as inhibitory)
-        for n in 0..<len(lobe.dendrites_1) {
-            for d in lobe.dendrites_1[n] {
-                label := fmt.tprintf("%v%-3d → %v%-3d  inh  stw=%.2f",
-                    d.source_lobe, int(d.source_idx),
-                    lobe_id, n, d.stw)
-
-                append(&ui.dendrites, Dendrite_Ref{
-                    src_lobe      = d.source_lobe,
-                    src_idx       = d.source_idx,
-                    dst_lobe      = lobe_id,
-                    dst_idx       = Neuron_Index(n),
-                    stw           = d.stw,
-                    is_excitatory = false,
-                    label         = strings.clone(label),
-                })
-                append(&ui.dendrite_labels,
-                    strings.clone_to_cstring(label, context.allocator))
-            }
-        }
-    }
-
-    ui.dendrite_active = -1
-    ui.dendrite_scroll = 0
 }
 
 visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
@@ -382,28 +321,6 @@ visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
         learn(brain)
     }
     y += 40
-
-    // Dendrite list
-    remaining := panel_h - y - 20
-    rl.GuiGroupBox({panel_x + pad, y, width, remaining}, "Dendrites")
-
-    // “Show all” checkbox
-    rl.GuiCheckBox(
-        {panel_x + pad + 8, y + 24, 20, 20},
-        "Show all dendrites",
-        &ui.show_all_dendrites,
-    )
-
-    list_y := y + 52
-    list_h := remaining - 60
-
-    dendrite_text := join_labels(ui.dendrite_labels[:])
-    rl.GuiListView(
-        {panel_x + pad + 6, list_y, width - 12, list_h},
-        dendrite_text,
-        &ui.dendrite_scroll, // scroll offset
-        &ui.dendrite_active, // currently selected item
-    )
 }
 
 // Join a slice of cstrings into the “item1;item2;item3” format raygui expects
@@ -415,4 +332,69 @@ join_labels :: proc(labels: []cstring, allocator := context.temp_allocator) -> c
         strings.write_string(&b, string(label))
     }
     return strings.to_cstring(&b)
+}
+
+dendrites_for_neuron :: proc(brain: ^Brain, ui: ^UI_State) {
+    clear(&ui.hovered_neuron_dendrites)
+    if ui.hovered_neuron.idx < 0 do return
+
+    sel_lobe := ui.hovered_neuron.lobe
+    sel_idx  := ui.hovered_neuron.idx
+
+    // ----- Incoming: any dendrite whose destination is this neuron -----
+    // Destination is always the lobe that *owns* the dendrite array.
+    lobe := &brain.lobes[sel_lobe]
+
+    for d in lobe.dendrites_0[sel_idx] {
+        append_dendrite(ui, d, sel_lobe, sel_idx, true, true)
+    }
+    for d in lobe.dendrites_1[sel_idx] {
+        append_dendrite(ui, d, sel_lobe, sel_idx, false, true)
+    }
+
+    // ----- Outgoing: any dendrite in any lobe whose source is this neuron -----
+    for lobe_id in Lobe_ID {
+        other := &brain.lobes[lobe_id]
+        for n in 0..<len(other.dendrites_0) {
+            for d in other.dendrites_0[n] {
+                if d.source_lobe == sel_lobe && int(d.source_idx) == sel_idx {
+                    append_dendrite(ui, d, lobe_id, n, true, false)
+                }
+            }
+        }
+        for n in 0..<len(other.dendrites_1) {
+            for d in other.dendrites_1[n] {
+                if d.source_lobe == sel_lobe && int(d.source_idx) == sel_idx {
+                    append_dendrite(ui, d, lobe_id, n, false, false)
+                }
+            }
+        }
+    }
+}
+
+append_dendrite :: proc(ui: ^UI_State, d: Dendrite, dst_lobe: Lobe_ID, dst_idx: int, excitatory, incoming: bool) {
+    append(&ui.hovered_neuron_dendrites, Dendrite_Ref{
+        src_lobe      = d.source_lobe,
+        src_idx       = d.source_idx,
+        dst_lobe      = dst_lobe,
+        dst_idx       = Neuron_Index(dst_idx),
+        stw           = d.stw,
+        is_excitatory = excitatory,
+        incoming      = incoming,
+    })
+}
+
+handle_neuron_hover :: proc(brain: ^Brain, ui: ^UI_State) {
+    mouse := rl.GetMousePosition()
+    for lobe_id in Lobe_ID {
+        lobe := &brain.lobes[lobe_id]
+        for i in 0..<len(lobe.neurons) {
+            r := neuron_rect(lobe_id, i)
+            if rl.CheckCollisionPointRec(mouse, r) {
+                ui.hovered_neuron = {lobe_id, i}
+                dendrites_for_neuron(brain, ui)
+                return
+            }
+        }
+    }
 }

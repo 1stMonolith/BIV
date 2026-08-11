@@ -59,21 +59,20 @@ UI_State :: struct {
 }
 
 LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
-    .Perception    = {id = .Perception,    name = "Perception",    gx =  4, gy = 13, gw =  7, gh = 16},
-    .Drive         = {id = .Drive,         name = "Drive",         gx = 34, gy = 30, gw =  8, gh =  2},
-    .Source        = {id = .Source,        name = "Source",        gx = 15, gy = 24, gw =  8, gh =  5},
-    .Verb          = {id = .Verb,          name = "Verb",          gx = 37, gy = 24, gw =  8, gh =  2},
-    .Noun          = {id = .Noun,          name = "Noun",          gx = 21, gy =  3, gw = 20, gh =  2},
-    .General_Sense = {id = .General_Sense, name = "General Sense", gx = 32, gy = 34, gw =  8, gh =  4},
-    .Decision      = {id = .Decision,      name = "Decision",      gx = 53, gy = 15, gw =  1, gh = 16},
-    .Attention     = {id = .Attention,     name = "Attention",     gx = 44, gy = 30, gw =  5, gh =  8},
-    .Concept       = {id = .Concept,       name = "Concept",       gx = 12, gy =  6, gw = 40, gh = 16},
+    .Drive      = {id = .Drive,      name = "Drive",      gx = 34, gy = 30, gw =  8, gh =  2},
+    .Source     = {id = .Source,     name = "Source",     gx = 15, gy = 24, gw =  8, gh =  5},
+    .Verb       = {id = .Verb,       name = "Verb",       gx = 37, gy = 24, gw =  8, gh =  2},
+    .Noun       = {id = .Noun,       name = "Noun",       gx = 21, gy =  3, gw = 20, gh =  2},
+    .Sense      = {id = .Sense,      name = "Sense",      gx = 32, gy = 34, gw =  8, gh =  4},
+    .Decision   = {id = .Decision,   name = "Decision",   gx = 53, gy = 15, gw =  1, gh = 16},
+    .Attention  = {id = .Attention,  name = "Attention",  gx = 44, gy = 30, gw =  5, gh =  8},
+    .Concept    = {id = .Concept,    name = "Concept",    gx = 12, gy =  6, gw = 40, gh = 16},
 }
 
 visualizer_init :: proc(ui: ^UI_State) {
-    ui.drive_index  = 2          // Hunger by default
-    ui.source_index = 6          // Food
-    ui.sense_index  = 12         // It_Near_Me
+    ui.drive_index  = 2   // Hunger by default
+    ui.source_index = 6   // Food
+    ui.sense_index  = 12  // It_Near_Me
     ui.drive_value  = 0.8
     ui.source_value = 0.7
     ui.sense_value  = 0.6
@@ -99,7 +98,7 @@ build_enum_labels :: proc(ui: ^UI_State) {
 
     // General Sense
     clear(&ui.sense_labels)
-    for s in GeneralSense {
+    for s in Sense {
         append(&ui.sense_labels, strings.clone_to_cstring(fmt.tprintf("%v", s), context.allocator))
     }
 
@@ -205,7 +204,7 @@ visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref)
             rl.DrawRectangleRec(r, c)
             rl.DrawRectangleLinesEx(r, 1, {20, 20, 30, 180})
         }
-        
+
         // Lobe border
         rl.DrawRectangleLinesEx(layout.screen, 1, rl.LIGHTGRAY)
     }
@@ -305,7 +304,7 @@ visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
         )
         if rl.GuiButton({panel_x + pad + 6, inner_y + 78, 100, 22}, "Apply Sense") {
             if ui.sense_index >= 0 && int(ui.sense_index) < len(ui.sense_labels) {
-                set_general_sense(brain, GeneralSense(ui.sense_index), ui.sense_value)
+                set_sense(brain, Sense(ui.sense_index), ui.sense_value)
             }
         }
     }
@@ -341,7 +340,7 @@ dendrites_for_neuron :: proc(brain: ^Brain, ui: ^UI_State) {
     sel_lobe := ui.hovered_neuron.lobe
     sel_idx  := ui.hovered_neuron.idx
 
-    // ----- Incoming: any dendrite whose destination is this neuron -----
+    // Incoming: any dendrite whose destination is this neuron
     // Destination is always the lobe that *owns* the dendrite array.
     lobe := &brain.lobes[sel_lobe]
 
@@ -352,7 +351,7 @@ dendrites_for_neuron :: proc(brain: ^Brain, ui: ^UI_State) {
         append_dendrite(ui, d, sel_lobe, sel_idx, false, true)
     }
 
-    // ----- Outgoing: any dendrite in any lobe whose source is this neuron -----
+    // Outgoing: any dendrite in any lobe whose source is this neuron
     for lobe_id in Lobe_ID {
         other := &brain.lobes[lobe_id]
         for n in 0..<len(other.dendrites_0) {

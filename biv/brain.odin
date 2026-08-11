@@ -5,12 +5,11 @@ import "base:runtime"
 import "core:time"
 
 Lobe_ID :: enum u8 {
-    Perception,
     Drive,
     Source,
     Verb,
     Noun,
-    General_Sense,
+    Sense,
     Decision,
     Attention,
     Concept,
@@ -84,7 +83,7 @@ Noun :: enum u8 {
 }
 
 // General Sense lobe events / features (32 cells)
-GeneralSense :: enum u8 {
+Sense :: enum u8 {
     BeenPatted     = 0,
     BeenSlapped    = 1,
     BumpedWall     = 2,
@@ -111,37 +110,14 @@ GeneralSense :: enum u8 {
 Neuron_Index :: distinct u16
 
 LOBE_SIZES := [Lobe_ID]int{
-    .Perception    = 112,
-    .Drive         = 16,
-    .Source        = 40,
-    .Verb          = 16,
-    .Noun          = 40,
-    .General_Sense = 32,
-    .Decision      = 16,
-    .Attention     = 40,
-    .Concept       = 640,
-}
-
-PERCEPTION_LAYOUT :: struct {
-    drive_start         : int,
-    drive_count         : int,
-    verb_start          : int,
-    verb_count          : int,
-    general_sense_start : int,
-    general_sense_count : int,
-    attention_start     : int,
-    attention_count     : int,
-}
-
-DEFAULT_PERCEPTION_LAYOUT := PERCEPTION_LAYOUT{
-    drive_start         = 0,
-    drive_count         = 16,
-    verb_start          = 16,
-    verb_count          = 16,
-    general_sense_start = 32,
-    general_sense_count = 32,
-    attention_start     = 64,
-    attention_count     = 40,
+    .Drive      = 16,
+    .Source     = 40,
+    .Verb       = 16,
+    .Noun       = 40,
+    .Sense      = 32,
+    .Decision   = 16,
+    .Attention  = 40,
+    .Concept    = 640,
 }
 
 Dendrite :: struct {
@@ -154,7 +130,11 @@ Dendrite :: struct {
 }
 
 Neuron :: struct {
-    state, output, rest, threshold, leakage : f32,
+    state     : f32,
+    output    : f32,
+    rest      : f32,
+    threshold : f32, // Neuron will not fire unless state is greater than this threshold
+    leakage   : f32, // Speed at which the state will drop from is current value to its rest state
 }
 
 Lobe :: struct {
@@ -168,7 +148,6 @@ Lobe :: struct {
 
 Brain :: struct {
     lobes             : [Lobe_ID]Lobe,
-    perception_layout : PERCEPTION_LAYOUT,
     reward            : f32, // 0..1 (set by biochemistry / external code)
     punish            : f32, // 0..1 (set by biochemistry / external code)
     chemicals         : [4]f32,
@@ -184,8 +163,6 @@ Brain :: struct {
 create :: proc(allocator := context.allocator) -> ^Brain {
     b := new(Brain, allocator)
     rand.reset(u64(time.time_to_unix(time.now())))
-    
-    b.perception_layout = DEFAULT_PERCEPTION_LAYOUT
 
     // Default learning hyper-parameters
     b.learning_rate        = 0.12
@@ -209,7 +186,6 @@ create :: proc(allocator := context.allocator) -> ^Brain {
         lobe.wta = (id == .Source) | (id == .Verb) | (id == .Noun) | (id == .Decision) | (id == .Attention)
     }
 
-    b.lobes[.Perception].update = update_perception
     b.lobes[.Concept].update    = update_concept
     b.lobes[.Decision].update   = update_decision
     b.lobes[.Attention].update  = update_attention
@@ -254,31 +230,28 @@ make_dendrite :: proc(source_lobe: Lobe_ID, source_idx: int) -> Dendrite {
 }
 
 wire_random_dendrites :: proc(b: ^Brain) {
-    // Concept ← Perception (1–3 inputs)
+    // Concept
     concept := &b.lobes[.Concept]
     clear_dendrites(concept)
-    perc_size := LOBE_SIZES[.Perception]
+
+    drive_size     := LOBE_SIZES[.Drive]
+    verb_size      := LOBE_SIZES[.Verb]
+    sense_size     := LOBE_SIZES[.Sense]
+    attention_size := LOBE_SIZES[.Attention]
 
     for i in 0..<len(concept.neurons) {
-        n_inputs := 1 + rand.int_max(3)
-        concept.dendrites_0[i] = make([]Dendrite, n_inputs)
-        used := make([]bool, perc_size, context.temp_allocator)
-
-        for j in 0..<n_inputs {
-            src: int
-            for {
-                src = rand.int_max(perc_size)
-                if !used[src] { used[src] = true; break }
-            }
-            concept.dendrites_0[i][j] = make_dendrite(.Perception, src)
-        }
+        concept.dendrites_0[i] = make([]Dendrite, 4)
+        concept.dendrites_0[i][0] = make_dendrite(.Drive,     rand.int_max(drive_size))
+        concept.dendrites_0[i][1] = make_dendrite(.Verb,      rand.int_max(verb_size))
+        concept.dendrites_0[i][2] = make_dendrite(.Sense,     rand.int_max(sense_size))
+        concept.dendrites_0[i][3] = make_dendrite(.Attention, rand.int_max(attention_size))
     }
 
-    // Decision ← Concept
+    // Decision
     decision := &b.lobes[.Decision]
     clear_dendrites(decision)
     concept_size := LOBE_SIZES[.Concept]
-    DENDRITES_PER :: 40
+    DENDRITES_PER :: 128
 
     for i in 0..<len(decision.neurons) {
         decision.dendrites_0[i] = make([]Dendrite, DENDRITES_PER)
@@ -343,26 +316,6 @@ apply_wta :: proc(lobe: ^Lobe) {
     }
 }
 
-update_perception :: proc(lobe: ^Lobe, brain: ^Brain) {
-    layout := brain.perception_layout
-    perc := lobe.neurons
-    for &n in perc { n.state = 0; n.output = 0 }
-
-    copy_slice :: proc(dst: []Neuron, src: []Neuron, start, count: int) {
-        for i in 0..<count {
-            if i < len(src) && start+i < len(dst) {
-                dst[start+i].state  = src[i].output
-                dst[start+i].output = src[i].output
-            }
-        }
-    }
-
-    copy_slice(perc, brain.lobes[.Drive].neurons,         layout.drive_start,         layout.drive_count)
-    copy_slice(perc, brain.lobes[.Verb].neurons,          layout.verb_start,          layout.verb_count)
-    copy_slice(perc, brain.lobes[.General_Sense].neurons, layout.general_sense_start, layout.general_sense_count)
-    copy_slice(perc, brain.lobes[.Attention].neurons,     layout.attention_start,     layout.attention_count)
-}
-
 update_concept :: proc(lobe: ^Lobe, brain: ^Brain) {
     for i in 0..<len(lobe.neurons) {
         n := &lobe.neurons[i]
@@ -383,7 +336,6 @@ update_concept :: proc(lobe: ^Lobe, brain: ^Brain) {
                 break
             }
             min_val = min(min_val, src_out * d.stw)
-            // mark susceptibility
             d.susceptible = min(1.0, d.susceptible + src_out * 0.5)
         }
         n.state = all_active ? min_val : 0.0
@@ -438,15 +390,12 @@ learn_dendrite :: proc(d: ^Dendrite, reward, punish: f32, is_excitatory: bool, b
     d.susceptible *= b.susceptibility_decay
 }
 
-migrate_dendrite :: proc(d: ^Dendrite, allowed_lobe: Lobe_ID, b: ^Brain) {
-    size := LOBE_SIZES[allowed_lobe]
-    new_idx := rand.int_max(size)
-    d.source_lobe = allowed_lobe
-    d.source_idx  = Neuron_Index(new_idx)
-    // Reset to a modest new strength so it can be tested again
-    d.stw = 0.15 + rand.float32_range(0.0, 0.2)
-    d.ltw = d.stw
-    d.strength = d.stw
+migrate_dendrite :: proc(d: ^Dendrite, b: ^Brain) {
+    size := LOBE_SIZES[d.source_lobe]
+    d.source_idx  = Neuron_Index(rand.int_max(size))
+    d.stw         = 0.15 + rand.float32_range(0.0, 0.2)
+    d.ltw         = d.stw
+    d.strength    = d.stw
     d.susceptible = 0.0
 }
 
@@ -457,18 +406,14 @@ learn_lobe :: proc(lobe: ^Lobe, b: ^Brain, type0_is_excitatory: bool) {
         for &d in lobe.dendrites_0[i] {
             learn_dendrite(&d, b.reward, b.punish, type0_is_excitatory, b)
             if d.strength < b.migration_threshold {
-                // Concept dendrites migrate within Perception
-                // Decision dendrites migrate within Concept
-                target := (lobe.id == .Concept) ? Lobe_ID.Perception : Lobe_ID.Concept
-                migrate_dendrite(&d, target, b)
+                migrate_dendrite(&d, b)
             }
         }
         // Type 1
         for &d in lobe.dendrites_1[i] {
             learn_dendrite(&d, b.reward, b.punish, !type0_is_excitatory, b)
             if d.strength < b.migration_threshold {
-                target := (lobe.id == .Concept) ? Lobe_ID.Perception : Lobe_ID.Concept
-                migrate_dendrite(&d, target, b)
+                migrate_dendrite(&d, b)
             }
         }
     }
@@ -493,18 +438,18 @@ learn :: proc(b: ^Brain) {
 tick :: proc(b: ^Brain) {
     b.tick += 1
 
-    if b.lobes[.Perception].update != nil do b.lobes[.Perception].update(&b.lobes[.Perception], b)
-    if b.lobes[.Concept].update    != nil do b.lobes[.Concept].update(&b.lobes[.Concept], b)
-    if b.lobes[.Decision].update   != nil do b.lobes[.Decision].update(&b.lobes[.Decision], b)
-    if b.lobes[.Attention].update  != nil do b.lobes[.Attention].update(&b.lobes[.Attention], b)
-
     for id in Lobe_ID {
+        if id == .Concept || id == .Decision || id == .Attention do continue
         lobe := &b.lobes[id]
         if lobe.update == nil {
             for &n in lobe.neurons do apply_leakage(&n)
             if lobe.wta do apply_wta(lobe)
         }
     }
+
+    if b.lobes[.Concept].update    != nil do b.lobes[.Concept].update(&b.lobes[.Concept], b)
+    if b.lobes[.Decision].update   != nil do b.lobes[.Decision].update(&b.lobes[.Decision], b)
+    if b.lobes[.Attention].update  != nil do b.lobes[.Attention].update(&b.lobes[.Attention], b)
 }
 
 tick_and_learn :: proc(b: ^Brain) {
@@ -544,10 +489,10 @@ speak_noun :: proc(b: ^Brain, noun: Noun, strength: f32 = 1.0) {
     n.output = neuron_output(n^)
 }
 
-set_general_sense :: proc(b: ^Brain, sense: GeneralSense, value: f32) {
+set_sense :: proc(b: ^Brain, sense: Sense, value: f32) {
     idx := int(sense)
-    if idx < 0 || idx >= LOBE_SIZES[.General_Sense] do return
-    n := &b.lobes[.General_Sense].neurons[sense]
+    if idx < 0 || idx >= LOBE_SIZES[.Sense] do return
+    n := &b.lobes[.Sense].neurons[sense]
     n.state = clamp(value, 0, 1)
     n.output = neuron_output(n^)
 }

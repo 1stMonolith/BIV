@@ -233,41 +233,56 @@ visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref)
 }
 
 build_dendrite_list :: proc(brain: ^Brain, ui: ^UI_State) {
-    // Free old labels
+    // Free old data
     for label in ui.dendrite_labels do delete(label)
+    for d in ui.dendrites do delete(d.label)
     clear(&ui.dendrite_labels)
     clear(&ui.dendrites)
 
-    decision := &brain.lobes[.Decision]
+    // Walk every lobe that may have dendrites
+    for lobe_id in Lobe_ID {
+        lobe := &brain.lobes[lobe_id]
 
-    for n in 0..<len(decision.neurons) {
-        // Type-0 (excitatory)
-        for d in decision.dendrites_0[n] {
-            label := fmt.tprintf("C%-3d → Decn%-2d  exc  stw=%.2f", int(d.source_idx), n, d.stw)
-            append(&ui.dendrites, Dendrite_Ref{
-                src_lobe      = d.source_lobe,
-                src_idx       = d.source_idx,
-                dst_lobe      = .Decision,
-                dst_idx       = Neuron_Index(n),
-                stw           = d.stw,
-                is_excitatory = true,
-                label         = strings.clone(label),
-            })
-            append(&ui.dendrite_labels, strings.clone_to_cstring(label, context.allocator))
+        // Type-0 dendrites (treated as excitatory)
+        for n in 0..<len(lobe.dendrites_0) {
+            for d in lobe.dendrites_0[n] {
+                label := fmt.tprintf("%v%-3d → %v%-3d  exc  stw=%.2f",
+                    d.source_lobe, int(d.source_idx),
+                    lobe_id, n, d.stw)
+
+                append(&ui.dendrites, Dendrite_Ref{
+                    src_lobe      = d.source_lobe,
+                    src_idx       = d.source_idx,
+                    dst_lobe      = lobe_id,
+                    dst_idx       = Neuron_Index(n),
+                    stw           = d.stw,
+                    is_excitatory = true,
+                    label         = strings.clone(label),
+                })
+                append(&ui.dendrite_labels,
+                    strings.clone_to_cstring(label, context.allocator))
+            }
         }
-        // Type-1 (inhibitory)
-        for d in decision.dendrites_1[n] {
-            label := fmt.tprintf("C%-3d → Decn%-2d  inh  stw=%.2f", int(d.source_idx), n, d.stw)
-            append(&ui.dendrites, Dendrite_Ref{
-                src_lobe      = d.source_lobe,
-                src_idx       = d.source_idx,
-                dst_lobe      = .Decision,
-                dst_idx       = Neuron_Index(n),
-                stw           = d.stw,
-                is_excitatory = false,
-                label         = strings.clone(label),
-            })
-            append(&ui.dendrite_labels, strings.clone_to_cstring(label, context.allocator))
+
+        // Type-1 dendrites (treated as inhibitory)
+        for n in 0..<len(lobe.dendrites_1) {
+            for d in lobe.dendrites_1[n] {
+                label := fmt.tprintf("%v%-3d → %v%-3d  inh  stw=%.2f",
+                    d.source_lobe, int(d.source_idx),
+                    lobe_id, n, d.stw)
+
+                append(&ui.dendrites, Dendrite_Ref{
+                    src_lobe      = d.source_lobe,
+                    src_idx       = d.source_idx,
+                    dst_lobe      = lobe_id,
+                    dst_idx       = Neuron_Index(n),
+                    stw           = d.stw,
+                    is_excitatory = false,
+                    label         = strings.clone(label),
+                })
+                append(&ui.dendrite_labels,
+                    strings.clone_to_cstring(label, context.allocator))
+            }
         }
     }
 
@@ -370,7 +385,7 @@ visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
 
     // Dendrite list
     remaining := panel_h - y - 20
-    rl.GuiGroupBox({panel_x + pad, y, width, remaining}, "Dendrites (Concept → Decision)")
+    rl.GuiGroupBox({panel_x + pad, y, width, remaining}, "Dendrites")
 
     // “Show all” checkbox
     rl.GuiCheckBox(

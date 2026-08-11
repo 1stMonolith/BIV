@@ -31,21 +31,30 @@ Dendrite_Ref :: struct {
 }
 
 UI_State :: struct {
-    // right-panel scroll / selection
-    selected_drive   : int,
-    selected_source  : int,
-    selected_sense   : int,
-    selected_verb    : int,
-    selected_noun    : int,
+// Sensory selectors
+    drive_index   : i32,
+    source_index  : i32,
+    sense_index   : i32,
+    verb_index    : i32,
+    noun_index    : i32,
 
-    drive_value      : f32,
-    source_value     : f32,
-    sense_value      : f32,
+    drive_value   : f32,
+    source_value  : f32,
+    sense_value   : f32,
 
-    // dendrite list
-    dendrite_list    : [dynamic]Dendrite_Ref,
-    selected_dendrite: int, // -1 = none
-    show_all_dendrites: bool,
+    // Dendrite list
+    dendrites           : [dynamic]Dendrite_Ref,
+    dendrite_labels     : [dynamic]cstring, // for GuiListView
+    dendrite_scroll     : i32,
+    dendrite_active     : i32,              // -1 = none selected
+    show_all_dendrites  : bool,
+
+    // Temporary cstring buffers for the fixed lists
+    drive_labels  : [dynamic]cstring,
+    source_labels : [dynamic]cstring,
+    sense_labels  : [dynamic]cstring,
+    verb_labels   : [dynamic]cstring,
+    noun_labels   : [dynamic]cstring,
 }
 
 LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
@@ -60,8 +69,67 @@ LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
     .Concept       = {id = .Concept,       name = "Concept",       gx = 12, gy =  6, gw = 40, gh = 16},
 }
 
+visualizer_init :: proc(ui: ^UI_State) {
+    ui.drive_index  = 2          // Hunger by default
+    ui.source_index = 6          // Food
+    ui.sense_index  = 12         // It_Near_Me
+    ui.dendrite_active = -1
+    ui.drive_value  = 0.8
+    ui.source_value = 0.7
+    ui.sense_value  = 0.6
+
+    build_enum_labels(ui)
+}
+
+build_enum_labels :: proc(ui: ^UI_State) {
+    // Drive
+    clear(&ui.drive_labels)
+    for d in Drive {
+        append(&ui.drive_labels, strings.clone_to_cstring(fmt.tprintf("%v", d), context.allocator))
+    }
+
+    // Source / Noun (same indices)
+    clear(&ui.source_labels)
+    clear(&ui.noun_labels)
+    for n in Noun {
+        name := fmt.tprintf("%v", n)
+        append(&ui.source_labels, strings.clone_to_cstring(name, context.allocator))
+        append(&ui.noun_labels,   strings.clone_to_cstring(name, context.allocator))
+    }
+
+    // General Sense
+    clear(&ui.sense_labels)
+    for s in GeneralSense {
+        append(&ui.sense_labels, strings.clone_to_cstring(fmt.tprintf("%v", s), context.allocator))
+    }
+
+    // Verb
+    clear(&ui.verb_labels)
+    for v in Verb {
+        append(&ui.verb_labels, strings.clone_to_cstring(fmt.tprintf("%v", v), context.allocator))
+    }
+}
+
+visualizer_destroy :: proc(ui: ^UI_State) {
+    for l in ui.drive_labels    do delete(l)
+    for l in ui.source_labels   do delete(l)
+    for l in ui.sense_labels    do delete(l)
+    for l in ui.verb_labels     do delete(l)
+    for l in ui.noun_labels     do delete(l)
+    for l in ui.dendrite_labels do delete(l)
+    for d in ui.dendrites       do delete(d.label)
+
+    delete(ui.drive_labels)
+    delete(ui.source_labels)
+    delete(ui.sense_labels)
+    delete(ui.verb_labels)
+    delete(ui.noun_labels)
+    delete(ui.dendrite_labels)
+    delete(ui.dendrites)
+}
+
 // Call once after window is created / on resize
-update_layout :: proc(view_x, view_y: f32) {
+visualizer_update_layout :: proc(view_x, view_y: f32) {
     for id in Lobe_ID {
         l := &LOBE_LAYOUT[id]
         l.screen = {
@@ -106,7 +174,7 @@ neuron_color :: proc(value: f32) -> rl.Color {
     }
 }
 
-draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
+visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
     // Background grid (subtle)
     for y in 0..<48 {
         for x in 0..<64 {
@@ -121,7 +189,7 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
 
     // Lobes + neurons
     for id in Lobe_ID {
-        lobe := &brain.lobes[id]
+        lobe   := &brain.lobes[id]
         layout := LOBE_LAYOUT[id]
 
         // Lobe label
@@ -136,8 +204,8 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
         // Individual neurons
         for i in 0..<len(lobe.neurons) {
             r := neuron_rect(id, i)
-            col := neuron_color(lobe.neurons[i].output)
-            rl.DrawRectangleRec(r, col)
+            c := neuron_color(lobe.neurons[i].output)
+            rl.DrawRectangleRec(r, c)
             rl.DrawRectangleLinesEx(r, 1, {20, 20, 30, 180})
         }
 
@@ -152,6 +220,7 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
 
         sx := src_r.x + src_r.width  * 0.5
         sy := src_r.y + src_r.height * 0.5
+        
         dx := dst_r.x + dst_r.width  * 0.5
         dy := dst_r.y + dst_r.height * 0.5
 
@@ -164,95 +233,171 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
 }
 
 build_dendrite_list :: proc(brain: ^Brain, ui: ^UI_State) {
-    clear(&ui.dendrite_list)
+    // Free old labels
+    for label in ui.dendrite_labels do delete(label)
+    clear(&ui.dendrite_labels)
+    clear(&ui.dendrites)
 
-    // show Concept → Decision dendrites
     decision := &brain.lobes[.Decision]
-    for ni in 0..<len(decision.neurons) {
-        for d in decision.dendrites_0[ni] {
-            append(&ui.dendrite_list, Dendrite_Ref{
-                src_lobe = d.source_lobe,
-                src_idx  = d.source_idx,
-                dst_lobe = .Decision,
-                dst_idx  = Neuron_Index(ni),
-                stw      = d.stw,
+
+    for n in 0..<len(decision.neurons) {
+        // Type-0 (excitatory)
+        for d in decision.dendrites_0[n] {
+            label := fmt.tprintf("C%-3d → Decn%-2d  exc  stw=%.2f", int(d.source_idx), n, d.stw)
+            append(&ui.dendrites, Dendrite_Ref{
+                src_lobe      = d.source_lobe,
+                src_idx       = d.source_idx,
+                dst_lobe      = .Decision,
+                dst_idx       = Neuron_Index(n),
+                stw           = d.stw,
                 is_excitatory = true,
-                label    = fmt.tprintf("C%d → Decn%d (exc %.2f)", d.source_idx, ni, d.stw),
+                label         = strings.clone(label),
             })
+            append(&ui.dendrite_labels, strings.clone_to_cstring(label, context.allocator))
         }
-        for d in decision.dendrites_1[ni] {
-            append(&ui.dendrite_list, Dendrite_Ref{
-                src_lobe = d.source_lobe,
-                src_idx  = d.source_idx,
-                dst_lobe = .Decision,
-                dst_idx  = Neuron_Index(ni),
-                stw      = d.stw,
+        // Type-1 (inhibitory)
+        for d in decision.dendrites_1[n] {
+            label := fmt.tprintf("C%-3d → Decn%-2d  inh  stw=%.2f", int(d.source_idx), n, d.stw)
+            append(&ui.dendrites, Dendrite_Ref{
+                src_lobe      = d.source_lobe,
+                src_idx       = d.source_idx,
+                dst_lobe      = .Decision,
+                dst_idx       = Neuron_Index(n),
+                stw           = d.stw,
                 is_excitatory = false,
-                label    = fmt.tprintf("C%d → Decn%d (inh %.2f)", d.source_idx, ni, d.stw),
+                label         = strings.clone(label),
             })
+            append(&ui.dendrite_labels, strings.clone_to_cstring(label, context.allocator))
         }
     }
-    // TODO: add Concept←Perception, Attention←Source/Noun, etc.
+
+    ui.dendrite_active = -1
+    ui.dendrite_scroll = 0
 }
 
-draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
-    panel_x := f32(rl.GetScreenWidth() - UI_WIDTH)
-    rl.GuiPanel({panel_x, 0, UI_WIDTH, f32(rl.GetScreenHeight())}, "Controls")
+visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
+    panel_x := f32(rl.GetScreenWidth()) - UI_WIDTH
+    panel_h := f32(rl.GetScreenHeight())
 
-    y: f32 = 40
-    line :: 28
+    rl.GuiPanel({panel_x, 0, UI_WIDTH, panel_h}, "BIV Controls")
+
+    y: f32 = 36
+    pad: f32 = 10
+    width := UI_WIDTH - 2*pad
 
     // Drive
-    rl.GuiLabel({panel_x + 10, y, 200, 20}, "Drive")
-    y += 22
-    rl.GuiSliderBar(
-        {panel_x + 10, y, UI_WIDTH - 40, 20},
-        "0", "1",
-        &ui.drive_value, 0, 1,
-    )
-    if rl.GuiButton({panel_x + 10, y + 26, 120, 24}, "Set Drive") {
-        set_drive(brain, Drive(ui.selected_drive), ui.drive_value)
+    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "Drive")
+    {
+        inner_y := y + 24
+        rl.GuiLabel({panel_x + pad + 6, inner_y, 80, 20}, "Select:")
+        // ListView for drives (small height)
+        drive_text := join_labels(ui.drive_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 6, inner_y + 22, width - 12, 50},
+            drive_text,
+            &ui.drive_index,          // active / selected
+            &ui.drive_index,          // scroll index (re-used for simplicity)
+        )
+        // value slider
+        rl.GuiSliderBar(
+            {panel_x + pad + 6, inner_y + 78, width - 12, 18},
+            "0", "1", &ui.drive_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 6, inner_y + 100, 100, 22}, "Apply Drive") {
+            if ui.drive_index >= 0 && int(ui.drive_index) < len(ui.drive_labels) {
+                set_drive(brain, Drive(ui.drive_index), ui.drive_value)
+            }
+        }
     }
-    y += 60
+    y += 120
 
-    // Source / Noun
-    rl.GuiLabel({panel_x + 10, y, 200, 20}, "Source (object)")
-    y += 22
-    rl.GuiSliderBar({panel_x + 10, y, UI_WIDTH - 40, 20}, "0", "1", &ui.source_value, 0, 1)
-    if rl.GuiButton({panel_x + 10, y + 26, 120, 24}, "Set Source") {
-        set_source(brain, Noun(ui.selected_source), ui.source_value)
+    // Source
+    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "Source (object class)")
+    {
+        inner_y := y + 24
+        source_text := join_labels(ui.source_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 6, inner_y, width - 12, 50},
+            source_text,
+            &ui.source_index,
+            &ui.source_index,
+        )
+        rl.GuiSliderBar(
+            {panel_x + pad + 6, inner_y + 56, width - 12, 18},
+            "0", "1", &ui.source_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 6, inner_y + 78, 100, 22}, "Apply Source") {
+            if ui.source_index >= 0 && int(ui.source_index) < len(ui.source_labels) {
+                set_source(brain, Noun(ui.source_index), ui.source_value)
+            }
+        }
     }
-    y += 60
+    y += 120
 
     // General Sense
-    rl.GuiLabel({panel_x + 10, y, 200, 20}, "General Sense")
-    y += 22
-    rl.GuiSliderBar({panel_x + 10, y, UI_WIDTH - 40, 20}, "0", "1", &ui.sense_value, 0, 1)
-    if rl.GuiButton({panel_x + 10, y + 26, 120, 24}, "Set Sense") {
-        set_general_sense(brain, GeneralSense(ui.selected_sense), ui.sense_value)
+    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "General Sense")
+    {
+        inner_y := y + 24
+        sense_text := join_labels(ui.sense_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 6, inner_y, width - 12, 50},
+            sense_text,
+            &ui.sense_index,
+            &ui.sense_index,
+        )
+        rl.GuiSliderBar(
+            {panel_x + pad + 6, inner_y + 56, width - 12, 18},
+            "0", "1", &ui.sense_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 6, inner_y + 78, 100, 22}, "Apply Sense") {
+            if ui.sense_index >= 0 && int(ui.sense_index) < len(ui.sense_labels) {
+                set_general_sense(brain, GeneralSense(ui.sense_index), ui.sense_value)
+            }
+        }
     }
-    y += 70
+    y += 120
 
-    // Tick / Learn buttons
-    if rl.GuiButton({panel_x + 10, y, 130, 30}, "Tick") {
+    // Tick button
+    if rl.GuiButton({panel_x + pad, y, width/2 - 4, 28}, "Tick") {
         tick(brain)
     }
-    if rl.GuiButton({panel_x + 150, y, 130, 30}, "Tick + Learn") {
-        tick_and_learn(brain)
+
+    // Learn button
+    if rl.GuiButton({panel_x + pad + width/2 + 4, y, width/2 - 4, 28}, "Learn") {
+        learn(brain)
     }
-    y += 50
+    y += 40
 
     // Dendrite list
-    rl.GuiLabel({panel_x + 10, y, 280, 20}, "Dendrites (select to draw)")
-    y += 24
+    remaining := panel_h - y - 20
+    rl.GuiGroupBox({panel_x + pad, y, width, remaining}, "Dendrites (Concept → Decision)")
 
-    /*
-    list_height := f32(rl.GetScreenHeight()) - y - 40
-    rl.GuiListView(
-        {panel_x + 10, y, UI_WIDTH - 30, list_height},
-        labels_joined,           // "item1;item2;item3"
-        &ui.scroll_index,
-        &ui.selected_dendrite,
+    // “Show all” checkbox
+    rl.GuiCheckBox(
+        {panel_x + pad + 8, y + 24, 20, 20},
+        "Show all dendrites",
+        &ui.show_all_dendrites,
     )
-    */
+
+    list_y := y + 52
+    list_h := remaining - 60
+
+    dendrite_text := join_labels(ui.dendrite_labels[:])
+    rl.GuiListView(
+        {panel_x + pad + 6, list_y, width - 12, list_h},
+        dendrite_text,
+        &ui.dendrite_scroll, // scroll offset
+        &ui.dendrite_active, // currently selected item
+    )
+}
+
+// Join a slice of cstrings into the “item1;item2;item3” format raygui expects
+join_labels :: proc(labels: []cstring, allocator := context.temp_allocator) -> cstring {
+    if len(labels) == 0 do return ""
+    b := strings.builder_make(allocator)
+    for label, i in labels {
+        if i > 0 do strings.write_string(&b, ";")
+        strings.write_string(&b, string(label))
+    }
+    return strings.to_cstring(&b)
 }

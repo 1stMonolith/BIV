@@ -6,17 +6,19 @@ import "core:fmt"
 
 main :: proc() {
     rl.SetConfigFlags({.WINDOW_RESIZABLE})
-    rl.InitWindow(1400, 900, "BIV – Brain In a Vat")
+    rl.InitWindow(1400, 900, "Brain In a Vat")
     rl.SetTargetFPS(60)
 
     brain := biv.create()
     defer biv.destroy(brain)
 
     ui: biv.UI_State
-    ui.selected_dendrite = -1
-    biv.build_dendrite_list(brain, &ui)
+    biv.visualizer_init(&ui)
+    defer biv.visualizer_destroy(&ui)
 
-    biv.update_layout(biv.GRID_PAD, biv.GRID_PAD)
+    biv.visualizer_update_layout(biv.GRID_PAD, biv.GRID_PAD)
+
+    biv.build_dendrite_list(brain, &ui)
 
     for !rl.WindowShouldClose() {
 
@@ -25,21 +27,22 @@ main :: proc() {
         rl.BeginDrawing()
         rl.ClearBackground({15, 15, 25, 255})
 
+        biv.visualizer_draw_ui(brain, &ui)
+
         to_draw: []biv.Dendrite_Ref
-        if ui.selected_dendrite >= 0 && ui.selected_dendrite < len(ui.dendrite_list) {
-            to_draw = ui.dendrite_list[ui.selected_dendrite:ui.selected_dendrite+1]
-        } else if ui.show_all_dendrites {
-            to_draw = ui.dendrite_list[:]
+        if ui.show_all_dendrites {
+            to_draw = ui.dendrites[:]
+        } else if ui.dendrite_active >= 0 && int(ui.dendrite_active) < len(ui.dendrites) {
+            to_draw = ui.dendrites[ui.dendrite_active:ui.dendrite_active+1]
         }
 
-        biv.draw_brain(brain, to_draw)
-        biv.draw_ui(brain, &ui)
+        biv.visualizer_draw_brain(brain, to_draw)
 
         // Status line
         decision  := biv.get_decision(brain)
         attention := biv.get_attention(brain)
         rl.DrawText(
-            fmt.ctprintf("Decision: %v   Attention: %v   Tick: %d", decision, attention, brain.tick),
+            fmt.ctprintf("Decision: %v - Attention: %v - Tick: %d", decision, attention, brain.tick),
             10, rl.GetScreenHeight() - 28, 18, rl.RAYWHITE,
         )
 

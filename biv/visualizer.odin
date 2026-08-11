@@ -4,14 +4,48 @@ import rl "vendor:raylib"
 import "core:fmt"
 import "core:strings"
 
+CELL_SIZE :: 14  // pixels per neuron
+GRID_PAD  :: 40  // margin around the whole brain
+UI_WIDTH  :: 320 // right-side control panel
+
+brain_pixel_width  :: 64 * CELL_SIZE
+brain_pixel_height :: 48 * CELL_SIZE
+
 Lobe_Rect :: struct {
     id     : Lobe_ID,
     name   : string,
     // position in the *logical* 64×48 grid
     gx, gy : int,
-    gw, gh : int,          // width/height in cells
+    gw, gh : int, // width/height in cells
     // computed screen rect
     screen : rl.Rectangle,
+}
+
+// Simplified dendrite reference for the list
+Dendrite_Ref :: struct {
+    src_lobe, dst_lobe : Lobe_ID,
+    src_idx,  dst_idx  : Neuron_Index,
+    stw                : f32,
+    is_excitatory      : bool,
+    label              : string,
+}
+
+UI_State :: struct {
+    // right-panel scroll / selection
+    selected_drive   : int,
+    selected_source  : int,
+    selected_sense   : int,
+    selected_verb    : int,
+    selected_noun    : int,
+
+    drive_value      : f32,
+    source_value     : f32,
+    sense_value      : f32,
+
+    // dendrite list
+    dendrite_list    : [dynamic]Dendrite_Ref,
+    selected_dendrite: int, // -1 = none
+    show_all_dendrites: bool,
 }
 
 LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
@@ -25,13 +59,6 @@ LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
     .Attention     = {id = .Attention,     name = "Attention",     gx = 44, gy = 30, gw =  5, gh =  8},
     .Concept       = {id = .Concept,       name = "Concept",       gx = 12, gy =  6, gw = 40, gh = 16},
 }
-
-CELL_SIZE :: 14  // pixels per neuron
-GRID_PAD  :: 40  // margin around the whole brain
-UI_WIDTH  :: 320 // right-side control panel
-
-brain_pixel_width  :: 64 * CELL_SIZE
-brain_pixel_height :: 48 * CELL_SIZE
 
 // Call once after window is created / on resize
 update_layout :: proc(view_x, view_y: f32) {
@@ -97,14 +124,13 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
         lobe := &brain.lobes[id]
         layout := LOBE_LAYOUT[id]
 
-        // Lobe border + label
-        rl.DrawRectangleLinesEx(layout.screen, 2, rl.LIGHTGRAY)
+        // Lobe label
         rl.DrawText(
             strings.clone_to_cstring(layout.name, context.temp_allocator),
             i32(layout.screen.x),
             i32(layout.screen.y) - 16,
-            12,
-            rl.RAYWHITE,
+            14,
+            rl.LIGHTGRAY,
         )
 
         // Individual neurons
@@ -114,6 +140,9 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
             rl.DrawRectangleRec(r, col)
             rl.DrawRectangleLinesEx(r, 1, {20, 20, 30, 180})
         }
+
+        // Lobe border
+        rl.DrawRectangleLinesEx(layout.screen, 1, rl.LIGHTGRAY)
     }
 
     // Selected dendrites as lines
@@ -132,33 +161,6 @@ draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
         thickness := 1.0 + ref.stw * 3.0
         rl.DrawLineEx({sx, sy}, {dx, dy}, thickness, col)
     }
-}
-
-// Simplified dendrite reference for the list
-Dendrite_Ref :: struct {
-    src_lobe, dst_lobe : Lobe_ID,
-    src_idx,  dst_idx  : Neuron_Index,
-    stw                : f32,
-    is_excitatory      : bool,
-    label              : string,
-}
-
-UI_State :: struct {
-    // right-panel scroll / selection
-    selected_drive   : int,
-    selected_source  : int,
-    selected_sense   : int,
-    selected_verb    : int,
-    selected_noun    : int,
-
-    drive_value      : f32,
-    source_value     : f32,
-    sense_value      : f32,
-
-    // dendrite list
-    dendrite_list    : [dynamic]Dendrite_Ref,
-    selected_dendrite: int,          // -1 = none
-    show_all_dendrites: bool,
 }
 
 build_dendrite_list :: proc(brain: ^Brain, ui: ^UI_State) {

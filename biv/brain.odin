@@ -17,19 +17,19 @@ Lobe_ID :: enum u8 {
 
 // Drive lobe (16 cells, 13 used in C1)
 Drive :: enum u8 {
-    Pain              = 0,
-    Need_For_Pleasure = 1,
-    Hunger            = 2,
-    Coldness          = 3,
-    Hotness           = 4,
-    Tiredness         = 5,
-    Sleepiness        = 6,
-    Loneliness        = 7,
-    Crowdedness       = 8,
-    Fear              = 9,
-    Boredom           = 10,
-    Anger             = 11,
-    Sex_Drive         = 12,
+    Pain            = 0,
+    NeedForPleasure = 1,
+    Hunger          = 2,
+    Coldness        = 3,
+    Hotness         = 4,
+    Tiredness       = 5,
+    Sleepiness      = 6,
+    Loneliness      = 7,
+    Crowdedness     = 8,
+    Fear            = 9,
+    Boredom         = 10,
+    Anger           = 11,
+    Sex_Drive       = 12,
     // 13–15 unused
 }
 
@@ -54,7 +54,7 @@ Verb :: enum u8 {
 Noun :: enum u8 {
     Self        = 0,
     Hand        = 1,
-    Call_Button = 2,
+    CallButton  = 2,
     Water       = 3,
     Plant       = 4,
     Egg         = 5,
@@ -183,12 +183,12 @@ create :: proc(allocator := context.allocator) -> ^Brain {
             n.threshold = 0.10
             n.leakage   = 0.05
         }
-        lobe.wta = (id == .Source) | (id == .Verb) | (id == .Noun) | (id == .Decision) | (id == .Attention)
+        lobe.wta = (id == .Source) || (id == .Verb) || (id == .Noun) || (id == .Decision) || (id == .Attention)
     }
 
-    b.lobes[.Concept].update    = update_concept
-    b.lobes[.Decision].update   = update_decision
-    b.lobes[.Attention].update  = update_attention
+    b.lobes[.Concept].update   = update_concept
+    b.lobes[.Decision].update  = update_decision
+    b.lobes[.Attention].update = update_attention
 
     wire_random_dendrites(b)
     return b
@@ -229,22 +229,30 @@ make_dendrite :: proc(source_lobe: Lobe_ID, source_idx: int) -> Dendrite {
     }
 }
 
+Concept_Source_Lobes :: [4]Lobe_ID{
+    .Drive,
+    .Verb,
+    .Sense,
+    .Attention,
+}
+
 wire_random_dendrites :: proc(b: ^Brain) {
     // Concept
     concept := &b.lobes[.Concept]
     clear_dendrites(concept)
 
-    drive_size     := LOBE_SIZES[.Drive]
-    verb_size      := LOBE_SIZES[.Verb]
-    sense_size     := LOBE_SIZES[.Sense]
-    attention_size := LOBE_SIZES[.Attention]
-
     for i in 0..<len(concept.neurons) {
-        concept.dendrites_0[i] = make([]Dendrite, 4)
-        concept.dendrites_0[i][0] = make_dendrite(.Drive,     rand.int_max(drive_size))
-        concept.dendrites_0[i][1] = make_dendrite(.Verb,      rand.int_max(verb_size))
-        concept.dendrites_0[i][2] = make_dendrite(.Sense,     rand.int_max(sense_size))
-        concept.dendrites_0[i][3] = make_dendrite(.Attention, rand.int_max(attention_size))
+        n_dendrites := 1 + rand.int_max(3)
+
+        lobes := Concept_Source_Lobes
+        rand.shuffle(lobes[:])
+
+        concept.dendrites_0[i] = make([]Dendrite, n_dendrites)
+        for j in 0..<n_dendrites {
+            lobe := lobes[j]
+            idx  := rand.int_max(LOBE_SIZES[lobe])
+            concept.dendrites_0[i][j] = make_dendrite(lobe, idx)
+        }
     }
 
     // Decision
@@ -262,7 +270,7 @@ wire_random_dendrites :: proc(b: ^Brain) {
         }
     }
 
-    // Attention ← Source + Noun
+    // Attention
     attention := &b.lobes[.Attention]
     clear_dendrites(attention)
     for i in 0..<len(attention.neurons) {

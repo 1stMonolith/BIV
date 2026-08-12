@@ -37,45 +37,52 @@ Dendrite_Ref :: struct {
 UI_State :: struct {
     // Sensory selectors
     drive_index   : i32,
-    source_index  : i32,
     sense_index   : i32,
     verb_index    : i32,
     noun_index    : i32,
+    source_index  : i32,
 
     drive_value   : f32,
-    source_value  : f32,
     sense_value   : f32,
+    verb_value    : f32,
+    noun_value    : f32,
+    source_value  : f32,
+
+    // Temporary cstring buffers for the fixed lists
+    drive_labels  : [dynamic]cstring,
+    sense_labels  : [dynamic]cstring,
+    verb_labels   : [dynamic]cstring,
+    noun_labels   : [dynamic]cstring,
+    source_labels : [dynamic]cstring,
 
     // Neuron
     hovered_neuron           : Neuron_Ref,
     hovered_neuron_dendrites : [dynamic]Dendrite_Ref,
-
-    // Temporary cstring buffers for the fixed lists
-    drive_labels  : [dynamic]cstring,
-    source_labels : [dynamic]cstring,
-    sense_labels  : [dynamic]cstring,
-    verb_labels   : [dynamic]cstring,
-    noun_labels   : [dynamic]cstring,
 }
 
 LOBE_LAYOUT := [Lobe_ID]Lobe_Rect{
-    .Drive      = {id = .Drive,      name = "Drive",      gx = 34, gy = 30, gw =  8, gh =  2},
-    .Source     = {id = .Source,     name = "Source",     gx = 15, gy = 24, gw =  8, gh =  5},
-    .Verb       = {id = .Verb,       name = "Verb",       gx = 37, gy = 24, gw =  8, gh =  2},
-    .Noun       = {id = .Noun,       name = "Noun",       gx = 21, gy =  3, gw = 20, gh =  2},
-    .Sense      = {id = .Sense,      name = "Sense",      gx = 32, gy = 34, gw =  8, gh =  4},
-    .Decision   = {id = .Decision,   name = "Decision",   gx = 53, gy = 15, gw =  1, gh = 16},
-    .Attention  = {id = .Attention,  name = "Attention",  gx = 44, gy = 30, gw =  5, gh =  8},
-    .Concept    = {id = .Concept,    name = "Concept",    gx = 12, gy =  6, gw = 40, gh = 16},
+    .Drive      = {id = .Drive,      name = "Drive",      gx = 14, gy =  6, gw =  8, gh =  2},
+    .Sense      = {id = .Sense,      name = "Sense",      gx = 14, gy = 11, gw =  8, gh =  4},
+    .Verb       = {id = .Verb,       name = "Verb",       gx = 14, gy = 18, gw =  8, gh =  2},
+    .Noun       = {id = .Noun,       name = "Noun",       gx =  3, gy = 22, gw =  8, gh =  5},
+    .Source     = {id = .Source,     name = "Source",     gx =  3, gy = 30, gw =  8, gh =  5},
+    .Attention  = {id = .Attention,  name = "Attention",  gx = 14, gy = 25, gw =  8, gh =  5},
+    .Concept    = {id = .Concept,    name = "Concept",    gx = 25, gy =  3, gw = 20, gh = 32},
+    .Decision   = {id = .Decision,   name = "Decision",   gx = 48, gy = 11, gw =  1, gh = 16},
 }
 
 visualizer_init :: proc(ui: ^UI_State) {
-    ui.drive_index  = 2   // Hunger by default
-    ui.source_index = 6   // Food
-    ui.sense_index  = 12  // It_Near_Me
-    ui.drive_value  = 0.8
-    ui.source_value = 0.7
-    ui.sense_value  = 0.6
+    ui.drive_index   = 0
+    ui.sense_index   = 0
+    ui.verb_index    = 0
+    ui.noun_index    = 0
+    ui.source_index  = 0
+
+    ui.drive_value   = 0.5
+    ui.sense_value   = 0.5
+    ui.verb_value    = 0.5
+    ui.noun_value    = 0.5
+    ui.source_value  = 0.5
 
     build_enum_labels(ui)
 }
@@ -87,16 +94,7 @@ build_enum_labels :: proc(ui: ^UI_State) {
         append(&ui.drive_labels, strings.clone_to_cstring(fmt.tprintf("%v", d), context.allocator))
     }
 
-    // Source / Noun (same indices)
-    clear(&ui.source_labels)
-    clear(&ui.noun_labels)
-    for n in Noun {
-        name := fmt.tprintf("%v", n)
-        append(&ui.source_labels, strings.clone_to_cstring(name, context.allocator))
-        append(&ui.noun_labels,   strings.clone_to_cstring(name, context.allocator))
-    }
-
-    // General Sense
+    // Sense
     clear(&ui.sense_labels)
     for s in Sense {
         append(&ui.sense_labels, strings.clone_to_cstring(fmt.tprintf("%v", s), context.allocator))
@@ -106,6 +104,15 @@ build_enum_labels :: proc(ui: ^UI_State) {
     clear(&ui.verb_labels)
     for v in Verb {
         append(&ui.verb_labels, strings.clone_to_cstring(fmt.tprintf("%v", v), context.allocator))
+    }
+
+    // Noun and Source (same indices)
+    clear(&ui.source_labels)
+    clear(&ui.noun_labels)
+    for n in Noun {
+        name := fmt.tprintf("%v", n)
+        append(&ui.source_labels, strings.clone_to_cstring(name, context.allocator))
+        append(&ui.noun_labels,   strings.clone_to_cstring(name, context.allocator))
     }
 }
 
@@ -172,8 +179,8 @@ neuron_color :: proc(value: f32) -> rl.Color {
 
 visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
     // Background grid (subtle)
-    for y in 0..<48 {
-        for x in 0..<64 {
+    for y in 0..<38 {
+        for x in 0..<52 {
             rl.DrawRectangleLines(
                 i32(GRID_PAD + x * CELL_SIZE),
                 i32(GRID_PAD + y * CELL_SIZE),
@@ -236,79 +243,122 @@ visualizer_draw_ui :: proc(brain: ^Brain, ui: ^UI_State) {
 
     y: f32 = 36
     pad: f32 = 10
-    width := UI_WIDTH - 2*pad
+    width := UI_WIDTH - 2 * pad
 
     // Drive
-    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "Drive")
+    rl.GuiGroupBox({panel_x + pad, y, width, 120}, "Drive")
     {
-        inner_y := y + 24
-        rl.GuiLabel({panel_x + pad + 6, inner_y, 80, 20}, "Select:")
-        // ListView for drives (small height)
+        inner_y := y + 10
         drive_text := join_labels(ui.drive_labels[:])
         rl.GuiListView(
-            {panel_x + pad + 6, inner_y + 22, width - 12, 50},
+            {panel_x + pad + 24, inner_y, width - 48, 34},
             drive_text,
-            &ui.drive_index,          // active / selected
-            &ui.drive_index,          // scroll index (re-used for simplicity)
+            &ui.drive_index,
+            &ui.drive_index,
         )
-        // value slider
         rl.GuiSliderBar(
-            {panel_x + pad + 6, inner_y + 78, width - 12, 18},
+            {panel_x + pad + 24, inner_y + 46, width - 48, 18},
             "0", "1", &ui.drive_value, 0.0, 1.0,
         )
-        if rl.GuiButton({panel_x + pad + 6, inner_y + 100, 100, 22}, "Apply Drive") {
+        if rl.GuiButton({panel_x + pad + 24, inner_y + 78, 100, 22}, "Apply Drive") {
             if ui.drive_index >= 0 && int(ui.drive_index) < len(ui.drive_labels) {
                 set_drive(brain, Drive(ui.drive_index), ui.drive_value)
             }
         }
     }
-    y += 120
+    y += 140
 
-    // Source
-    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "Source (object class)")
+    // Sense
+    rl.GuiGroupBox({panel_x + pad, y, width, 120}, "Sense")
     {
-        inner_y := y + 24
-        source_text := join_labels(ui.source_labels[:])
-        rl.GuiListView(
-            {panel_x + pad + 6, inner_y, width - 12, 50},
-            source_text,
-            &ui.source_index,
-            &ui.source_index,
-        )
-        rl.GuiSliderBar(
-            {panel_x + pad + 6, inner_y + 56, width - 12, 18},
-            "0", "1", &ui.source_value, 0.0, 1.0,
-        )
-        if rl.GuiButton({panel_x + pad + 6, inner_y + 78, 100, 22}, "Apply Source") {
-            if ui.source_index >= 0 && int(ui.source_index) < len(ui.source_labels) {
-                set_source(brain, Noun(ui.source_index), ui.source_value)
-            }
-        }
-    }
-    y += 120
-
-    // General Sense
-    rl.GuiGroupBox({panel_x + pad, y, width, 110}, "General Sense")
-    {
-        inner_y := y + 24
+        inner_y := y + 10
         sense_text := join_labels(ui.sense_labels[:])
         rl.GuiListView(
-            {panel_x + pad + 6, inner_y, width - 12, 50},
+            {panel_x + pad + 24, inner_y, width - 48, 34},
             sense_text,
             &ui.sense_index,
             &ui.sense_index,
         )
         rl.GuiSliderBar(
-            {panel_x + pad + 6, inner_y + 56, width - 12, 18},
+            {panel_x + pad + 24, inner_y + 46, width - 48, 18},
             "0", "1", &ui.sense_value, 0.0, 1.0,
         )
-        if rl.GuiButton({panel_x + pad + 6, inner_y + 78, 100, 22}, "Apply Sense") {
+        if rl.GuiButton({panel_x + pad + 24, inner_y + 78, 100, 22}, "Apply Sense") {
             if ui.sense_index >= 0 && int(ui.sense_index) < len(ui.sense_labels) {
                 set_sense(brain, Sense(ui.sense_index), ui.sense_value)
             }
         }
     }
-    y += 120
+    y += 140
+
+    // Verb
+    rl.GuiGroupBox({panel_x + pad, y, width, 120}, "Verb")
+    {
+        inner_y := y + 10
+        verb_text := join_labels(ui.verb_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 24, inner_y, width - 48, 34},
+            verb_text,
+            &ui.verb_index,
+            &ui.verb_index,
+        )
+        rl.GuiSliderBar(
+            {panel_x + pad + 24, inner_y + 46, width - 48, 18},
+            "0", "1", &ui.verb_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 24, inner_y + 78, 100, 22}, "Speak Verb") {
+            if ui.verb_index >= 0 && int(ui.verb_index) < len(ui.verb_labels) {
+                speak_verb(brain, Verb(ui.verb_index), ui.verb_value)
+            }
+        }
+    }
+    y += 140
+
+    // Noun
+    rl.GuiGroupBox({panel_x + pad, y, width, 120}, "Noun")
+    {
+        inner_y := y + 10
+        noun_text := join_labels(ui.noun_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 24, inner_y, width - 48, 34},
+            noun_text,
+            &ui.noun_index,
+            &ui.noun_index,
+        )
+        rl.GuiSliderBar(
+            {panel_x + pad + 24, inner_y + 46, width - 48, 18},
+            "0", "1", &ui.noun_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 24, inner_y + 78, 100, 22}, "Speak Noun") {
+            if ui.noun_index >= 0 && int(ui.noun_index) < len(ui.noun_labels) {
+                speak_noun(brain, Noun(ui.noun_index), ui.noun_value)
+            }
+        }
+    }
+    y += 140
+
+    // Source
+    rl.GuiGroupBox({panel_x + pad, y, width, 120}, "Source")
+    {
+        inner_y := y + 10
+        source_text := join_labels(ui.source_labels[:])
+        rl.GuiListView(
+            {panel_x + pad + 24, inner_y, width - 48, 34},
+            source_text,
+            &ui.source_index,
+            &ui.source_index,
+        )
+        rl.GuiSliderBar(
+            {panel_x + pad + 24, inner_y + 46, width - 48, 18},
+            "0", "1", &ui.source_value, 0.0, 1.0,
+        )
+        if rl.GuiButton({panel_x + pad + 24, inner_y + 78, 100, 22}, "Apply Source") {
+            if ui.source_index >= 0 && int(ui.source_index) < len(ui.source_labels) {
+                set_source(brain, Noun(ui.source_index), ui.source_value)
+            }
+        }
+    }
+    y += 140
 
     // Tick button
     if rl.GuiButton({panel_x + pad, y, width/2 - 4, 28}, "Tick") {

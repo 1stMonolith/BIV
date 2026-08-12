@@ -14,7 +14,7 @@ brain_pixel_height :: 48 * CELL_SIZE
 Lobe_Rect :: struct {
     id     : Lobe_ID,
     name   : string,
-    // position in the *logical* 64×48 grid
+    // position in the *logical* grid
     gx, gy : int,
     gw, gh : int, // width/height in cells
     // computed screen rect
@@ -80,8 +80,8 @@ visualizer_init :: proc(ui: ^UI_State) {
 
     ui.drive_value   = 0.5
     ui.sense_value   = 0.5
-    ui.verb_value    = 0.5
-    ui.noun_value    = 0.5
+    ui.verb_value    = 1.0
+    ui.noun_value    = 1.0
     ui.source_value  = 0.5
 
     build_enum_labels(ui)
@@ -159,6 +159,13 @@ neuron_rect :: proc(id: Lobe_ID, idx: int) -> rl.Rectangle {
 
 // Map neuron output (0..1) → colour
 neuron_color :: proc(value: f32) -> rl.Color {
+    t := clamp(value, 0, 1)
+    r := u8(10 + t * 40)
+    g := u8(20 + t * 200)
+    b := u8(10 + t * 60)
+
+    return {r, g, b, 255}
+    /*
     // dark blue → cyan → yellow → red
     t := clamp(value, 0, 1)
     if t < 0.33 {
@@ -175,6 +182,7 @@ neuron_color :: proc(value: f32) -> rl.Color {
         u := (t - 0.66) * 3
         return rl.Color{255, u8(255 - u * 200), 0, 255}
     }
+    */
 }
 
 visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref) {
@@ -228,7 +236,7 @@ visualizer_draw_brain :: proc(brain: ^Brain, selected_dendrites: []Dendrite_Ref)
         dy := dst_r.y + dst_r.height * 0.5
 
         // Colour by weight / type
-        col := ref.is_excitatory ? rl.Color{80, 220, 120, 200} : rl.Color{220, 80, 80, 200}
+        col := ref.is_excitatory ? rl.GREEN : rl.RED
 
         thickness := 1.0 + ref.stw * 3.0
         rl.DrawLineEx({sx, sy}, {dx, dy}, thickness, col)

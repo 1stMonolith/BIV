@@ -6,119 +6,134 @@ import "core:time"
 
 Lobe_ID :: enum u8 {
     Drive,
-    Source,
+    Sense,
     Verb,
     Noun,
-    Sense,
-    Decision,
+    Source,
     Attention,
     Concept,
+    Decision,
 }
 
-// Drive lobe (16 cells, 13 used in C1)
+LOBE_SIZES := [Lobe_ID]int{
+    .Drive      = 16,
+    .Sense      = 32,
+    .Verb       = 16,
+    .Noun       = 40,
+    .Source     = 40,
+    .Attention  = 40,
+    .Concept    = 640,
+    .Decision   = 16,
+}
+
+// Drives
 Drive :: enum u8 {
     Pain            = 0,
     NeedForPleasure = 1,
     Hunger          = 2,
-    Coldness        = 3,
-    Hotness         = 4,
-    Tiredness       = 5,
-    Sleepiness      = 6,
-    Loneliness      = 7,
-    Crowdedness     = 8,
-    Fear            = 9,
-    Boredom         = 10,
-    Anger           = 11,
-    Sex_Drive       = 12,
-    // 13–15 unused
+    Thirst          = 3,
+    Coldness        = 4,
+    Hotness         = 5,
+    Tiredness       = 6,
+    Sleepiness      = 7,
+    Loneliness      = 8,
+    Crowdedness     = 9,
+    Fear            = 10,
+    Boredom         = 11,
+    Anger           = 12,
+    SexDrive        = 13,
+    Injury          = 14,
+    Suffocation     = 15,
+    Stress          = 16,
 }
 
-// Verb / Decision lobe actions (16 cells)
-Verb :: enum u8 {
-    Quiescent = 0, // stay / do nothing
-    Push      = 1, // activate 1  (eat food, etc.)
-    Pull      = 2, // activate 2
-    Stop      = 3, // deactivate
-    Come      = 4, // approach
-    Run       = 5, // retreat
-    Get       = 6,
-    Drop      = 7,
-    Think     = 8, // say need / what
-    Sleep     = 9,
-    Left      = 10,
-    Right     = 11,
-    // 12–15 unused
-}
-
-// Noun / Source / Attention object classes (40 cells)
-Noun :: enum u8 {
-    Self        = 0,
-    Hand        = 1,
-    CallButton  = 2,
-    Water       = 3,
-    Plant       = 4,
-    Egg         = 5,
-    Food        = 6,
-    Drink       = 7,
-    Vendor      = 8,
-    Music       = 9,
-    Animal      = 10,
-    Fire        = 11,
-    Shower      = 12,
-    Toy         = 13,
-    BigToy      = 14,
-    Weed        = 15,
-    Incubator   = 16,
-    // 17–25 unused
-    Vehicle     = 26,
-    Lift        = 27,
-    Computer    = 28,
-    Fun         = 29,
-    Bang        = 30,
-    // 31–35 unused
-    Creature1   = 36,
-    Creature2   = 37,
-    Creature3   = 38,
-    Creature4   = 39,
-}
-
-// General Sense lobe events / features (32 cells)
+// Senses
 Sense :: enum u8 {
-    BeenPatted     = 0,
-    BeenSlapped    = 1,
-    BumpedWall     = 2,
-    NearWall       = 3,
-    InVehicle      = 4,
-    UserSpoken     = 5,
-    CreatureSpoken = 6,
-    OwnKindSpoken  = 7,
-    AudibleEvent   = 8,
-    VisibleEvent   = 9,
-    ItApproaching  = 10,
-    ItRetreating   = 11,
-    ItNearMe       = 12,
-    ItActive       = 13,
-    ItObject       = 14,
-    ItCreature     = 15,
-    ItSibling      = 16,
-    ItParent       = 17,
-    ItChild        = 18,
-    ItOppositeSex  = 19,
-    // 20+ were unused
+    BeenPatted      = 0,
+    BeenSlapped     = 1,
+    BumpedWall      = 2,
+    NearWall        = 3,
+    InVehicle       = 4,
+    UserSpoken      = 5,
+    CreatureSpoken  = 6,
+    OwnKindSpoken   = 7,
+    AudibleEvent    = 8,
+    VisibleEvent    = 9,
+    ItApproaching   = 10,
+    ItRetreating    = 11,
+    ItNearMe        = 12,
+    ItActive        = 13,
+    ItObject        = 14,
+    ItCreature      = 15,
+    ItSibling       = 16,
+    ItParent        = 17,
+    ItChild         = 18,
+    ItOppositeSex   = 19,
+    ItPushedMe      = 20,
+    ItHitMe         = 21,
+    ApproachingEdge = 22,
+    RetreatingEdge  = 23,
+    Falling         = 24,
+    HitGound        = 25,
+    NotAlloc26      = 26,
+    NotAlloc27      = 27,
+    NotAlloc28      = 28,
+    NotAlloc29      = 29,
+    NotAlloc30      = 30,
+    NotAlloc31      = 31,
+}
+
+// Verbs and Decision
+Verb :: enum u8 {
+    Quiescent       = 0,
+    Push            = 1,
+    Pull            = 2,
+    Stop            = 3,
+    Come            = 4,
+    Run             = 5,
+    Get             = 6,
+    Drop            = 7,
+    What            = 8,
+    Sleep           = 9,
+    Left            = 10,
+    Right           = 11,
+    Eat             = 12,
+    Hit             = 13,
+    NotAlloc14      = 14,
+    NotAlloc15      = 15,
+}
+
+// Nouns, Sources, and Attention
+Noun :: enum u8 {
+    Self            = 0,
+    Hand            = 1,
+    CallButton      = 2,
+    Water           = 3,
+    Plant           = 4,
+    Egg             = 5,
+    Food            = 6,
+    Drink           = 7,
+    Vendor          = 8,
+    Music           = 9,
+    Animal          = 10,
+    Fire            = 11,
+    Shower          = 12,
+    Toy             = 13,
+    BigToy          = 14,
+    Weed            = 15,
+    Incubator       = 16,
+    Vehicle         = 26,
+    Lift            = 27,
+    Computer        = 28,
+    Fun             = 29,
+    Bang            = 30,
+    Creature1       = 36,
+    Creature2       = 37,
+    Creature3       = 38,
+    Creature4       = 39,
 }
 
 Neuron_Index :: distinct u16
-
-LOBE_SIZES := [Lobe_ID]int{
-    .Drive      = 16,
-    .Source     = 40,
-    .Verb       = 16,
-    .Noun       = 40,
-    .Sense      = 32,
-    .Decision   = 16,
-    .Attention  = 40,
-    .Concept    = 640,
-}
 
 Dendrite :: struct {
     source_lobe : Lobe_ID,
@@ -428,15 +443,15 @@ learn_lobe :: proc(lobe: ^Lobe, b: ^Brain, type0_is_excitatory: bool) {
 }
 
 learn :: proc(b: ^Brain) {
-    // Concept learns from Perception (all type-0, treated as excitatory)
+    // Allow Attention to learn?
+    // learn_lobe(&b.lobes[.Attention], b, true)
+
+    // Concept learns Drive, Sense, Verb and Attention (all type-0, treated as excitatory)
     learn_lobe(&b.lobes[.Concept], b, true)
 
     // Decision learns from Concept
     // type-0 = excitatory, type-1 = inhibitory
     learn_lobe(&b.lobes[.Decision], b, true)
-
-    // Optional: also allow Attention to learn a little
-    // learn_lobe(&b.lobes[.Attention], b, true)
 
     // Decay global signals so they don’t stay high forever
     b.reward *= 0.92
@@ -455,9 +470,9 @@ tick :: proc(b: ^Brain) {
         }
     }
 
+    if b.lobes[.Attention].update  != nil do b.lobes[.Attention].update(&b.lobes[.Attention], b)
     if b.lobes[.Concept].update    != nil do b.lobes[.Concept].update(&b.lobes[.Concept], b)
     if b.lobes[.Decision].update   != nil do b.lobes[.Decision].update(&b.lobes[.Decision], b)
-    if b.lobes[.Attention].update  != nil do b.lobes[.Attention].update(&b.lobes[.Attention], b)
 }
 
 tick_and_learn :: proc(b: ^Brain) {
